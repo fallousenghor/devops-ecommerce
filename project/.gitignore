@@ -1,0 +1,49 @@
+# ── Java / Maven ──────────────────────────────────────────
+target/
+*.class
+*.jar
+*.war
+*.ear
+.mvn/
+mvnw
+mvnw.cmd
+
+# ── IDE ───────────────────────────────────────────────────
+.idea/
+*.iml
+.vscode/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# ── OS ────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+*.log
+
+# ── Docker ────────────────────────────────────────────────
+.docker/
+
+# ── Env ───────────────────────────────────────────────────
+.env
+!.env.example
+
+# ── SonarQube ─────────────────────────────────────────────
+.scannerwork/
+
+# ── Flutter ───────────────────────────────────────────────
+mobile/.dart_tool/
+mobile/.flutter-plugins
+mobile/.flutter-plugins-dependencies
+mobile/build/
+mobile/android/.gradle/
+mobile/android/local.properties
+mobile/ios/Pods/
+mobile/ios/.symlinks/
+
+# ── Node / Angular ────────────────────────────────────────
+admin/node_modules/
+admin/dist/
+admin/.angular/
