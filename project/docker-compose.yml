@@ -1,5 +1,3 @@
-version: '3.9'
-
 services:
 
   # ── PostgreSQL ──────────────────────────────────────────────────────────────
@@ -11,7 +9,7 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
     ports:
-      - "5432:5432"
+      - "5433:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./devops/db/init.sql:/docker-entrypoint-initdb.d/init.sql
@@ -31,7 +29,7 @@ services:
     container_name: electronics_backend
     environment:
       DB_HOST: postgres
-      DB_PORT: 5432
+      DB_PORT: 5433
       DB_NAME: electronicsdb
       DB_USER: postgres
       DB_PASSWORD: postgres
