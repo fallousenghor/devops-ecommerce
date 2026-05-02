@@ -116,7 +116,7 @@ pipeline {
         success {
             echo """
             ╔════════════════════════════════════╗
-            ║  ✅ Pipeline réussi!               ║
+            ║  ✅ Pipeline réussi!!               ║
             ║  Build #${BUILD_NUMBER}            ║
             ╚════════════════════════════════════╝
             """
