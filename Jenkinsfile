@@ -2,16 +2,10 @@ pipeline {
     agent any
 
     environment {
-        APP_NAME        = 'electronics-store'
-        DOCKER_IMAGE    = "electronics-store/backend"
-        DOCKER_TAG      = "${BUILD_NUMBER}"
-        SONAR_TOKEN     = credentials('sonar-token')
-        SONAR_HOST_URL  = 'http://sonarqube:9000'
-    }
-
-    tools {
-        maven 'Maven-3.9'
-        jdk   'JDK-17'
+        APP_NAME       = 'electronics-store'
+        DOCKER_IMAGE   = "fallousenghor/electronics-store"
+        DOCKER_TAG     = "${BUILD_NUMBER}"
+        SONAR_HOST_URL = 'http://sonarqube:9000'
     }
 
     options {
@@ -34,7 +28,7 @@ pipeline {
         stage('Build') {
             steps {
                 echo '🔨 Build Maven...'
-                dir('backend') {
+                dir('project/backend') {
                     sh 'mvn clean compile -B -q'
                 }
             }
@@ -44,18 +38,14 @@ pipeline {
         stage('Tests') {
             steps {
                 echo '🧪 Exécution des tests unitaires...'
-                dir('backend') {
+                dir('project/backend') {
                     sh 'mvn test -B'
                 }
             }
             post {
                 always {
-                    junit 'backend/target/surefire-reports/**/*.xml'
-                    jacoco(
-                        execPattern: 'backend/target/jacoco.exec',
-                        classPattern: 'backend/target/classes',
-                        sourcePattern: 'backend/src/main/java'
-                    )
+                    junit allowEmptyResults: true,
+                          testResults: 'project/backend/target/surefire-reports/**/*.xml'
                 }
                 failure {
                     echo '❌ Tests échoués!'
@@ -67,16 +57,16 @@ pipeline {
         stage('SonarQube Analysis') {
             steps {
                 echo '🔍 Analyse SonarQube...'
-                dir('backend') {
-                    sh """
-                        mvn sonar:sonar \
-                          -Dsonar.projectKey=${APP_NAME} \
-                          -Dsonar.projectName='Electronics Store Backend' \
-                          -Dsonar.host.url=${SONAR_HOST_URL} \
-                          -Dsonar.token=${SONAR_TOKEN} \
-                          -Dsonar.coverage.jacoco.xmlReportPaths=target/site/jacoco/jacoco.xml \
-                          -B -q
-                    """
+                withSonarQubeEnv('SonarQube') {
+                    dir('project/backend') {
+                        sh """
+                            mvn sonar:sonar \
+                              -Dsonar.projectKey=${APP_NAME} \
+                              -Dsonar.projectName='Electronics Store Backend' \
+                              -Dsonar.coverage.jacoco.xmlReportPaths=target/site/jacoco/jacoco.xml \
+                              -B -q
+                        """
+                    }
                 }
             }
         }
@@ -85,7 +75,7 @@ pipeline {
         stage('Package') {
             steps {
                 echo '📦 Packaging de l\'application...'
-                dir('backend') {
+                dir('project/backend') {
                     sh 'mvn package -DskipTests -B -q'
                     archiveArtifacts artifacts: 'target/*.jar', fingerprint: true
                 }
@@ -96,7 +86,7 @@ pipeline {
         stage('Docker Build') {
             steps {
                 echo '🐳 Construction de l\'image Docker...'
-                dir('backend') {
+                dir('project/backend') {
                     sh """
                         docker build \
                           -t ${DOCKER_IMAGE}:${DOCKER_TAG} \
@@ -107,16 +97,28 @@ pipeline {
             }
         }
 
-        // ── 7. Déploiement local ────────────────────────────────────────────
-        stage('Deploy') {
-            when {
-                branch 'main'
+        // ── 7. Push DockerHub ───────────────────────────────────────────────
+        stage('Push DockerHub') {
+            when { branch 'main' }
+            steps {
+                echo '📤 Push vers DockerHub...'
+                script {
+                    docker.withRegistry('', 'dockerhub-credentials') {
+                        docker.image("${DOCKER_IMAGE}:${DOCKER_TAG}").push()
+                        docker.image("${DOCKER_IMAGE}:latest").push()
+                    }
+                }
             }
+        }
+
+        // ── 8. Déploiement local ────────────────────────────────────────────
+        stage('Deploy') {
+            when { branch 'main' }
             steps {
                 echo '🚀 Déploiement local via docker-compose...'
                 sh """
-                    docker-compose down backend || true
-                    docker-compose up -d backend
+                    docker-compose -f project/docker-compose.yml down backend || true
+                    docker-compose -f project/docker-compose.yml up -d backend
                 """
                 echo '✅ Déploiement terminé!'
             }
