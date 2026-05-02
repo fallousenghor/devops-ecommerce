@@ -24,31 +24,27 @@ pipeline {
         }
 
         stage('Build') {
-            agent {
-                dockerContainer {
-                    image 'maven:3.9.8-eclipse-temurin-17'
-                    args '-v $HOME/.m2:/root/.m2'
-                }
-            }
             steps {
                 echo '🔨 Build Maven...'
-                dir('project/backend') {
-                    sh 'mvn clean compile -B -q'
+                script {
+                    docker.image('maven:3.9.8-eclipse-temurin-17').inside('-v $HOME/.m2:/root/.m2') {
+                        dir('project/backend') {
+                            sh 'mvn clean compile -B -q'
+                        }
+                    }
                 }
             }
         }
 
         stage('Tests') {
-            agent {
-                dockerContainer {
-                    image 'maven:3.9.8-eclipse-temurin-17'
-                    args '-v $HOME/.m2:/root/.m2'
-                }
-            }
             steps {
                 echo '🧪 Exécution des tests unitaires...'
-                dir('project/backend') {
-                    sh 'mvn test -B'
+                script {
+                    docker.image('maven:3.9.8-eclipse-temurin-17').inside('-v $HOME/.m2:/root/.m2') {
+                        dir('project/backend') {
+                            sh 'mvn test -B'
+                        }
+                    }
                 }
             }
             post {
@@ -63,40 +59,36 @@ pipeline {
         }
 
         stage('SonarQube Analysis') {
-            agent {
-                dockerContainer {
-                    image 'maven:3.9.8-eclipse-temurin-17'
-                    args '-v $HOME/.m2:/root/.m2'
-                }
-            }
             steps {
                 echo '🔍 Analyse SonarQube...'
-                withSonarQubeEnv('SonarQube') {
-                    dir('project/backend') {
-                        sh '''
-                            mvn sonar:sonar \
-                              -Dsonar.projectKey=${APP_NAME} \
-                              -Dsonar.projectName='Electronics Store Backend' \
-                              -Dsonar.coverage.jacoco.xmlReportPaths=target/site/jacoco/jacoco.xml \
-                              -B -q
-                        '''
+                script {
+                    docker.image('maven:3.9.8-eclipse-temurin-17').inside('-v $HOME/.m2:/root/.m2') {
+                        withSonarQubeEnv('SonarQube') {
+                            dir('project/backend') {
+                                sh '''
+                                    mvn sonar:sonar \
+                                      -Dsonar.projectKey=${APP_NAME} \
+                                      -Dsonar.projectName='Electronics Store Backend' \
+                                      -Dsonar.coverage.jacoco.xmlReportPaths=target/site/jacoco/jacoco.xml \
+                                      -B -q
+                                '''
+                            }
+                        }
                     }
                 }
             }
         }
 
         stage('Package') {
-            agent {
-                dockerContainer {
-                    image 'maven:3.9.8-eclipse-temurin-17'
-                    args '-v $HOME/.m2:/root/.m2'
-                }
-            }
             steps {
                 echo '📦 Packaging de l\'application...'
-                dir('project/backend') {
-                    sh 'mvn package -DskipTests -B -q'
-                    archiveArtifacts artifacts: 'target/*.jar', fingerprint: true
+                script {
+                    docker.image('maven:3.9.8-eclipse-temurin-17').inside('-v $HOME/.m2:/root/.m2') {
+                        dir('project/backend') {
+                            sh 'mvn package -DskipTests -B -q'
+                            archiveArtifacts artifacts: 'target/*.jar', fingerprint: true
+                        }
+                    }
                 }
             }
         }
