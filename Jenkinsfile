@@ -1,5 +1,10 @@
 pipeline {
-    agent any
+    agent {
+        docker {
+            image 'maven:3.9.9-eclipse-temurin-17'
+            args '-v /var/run/docker.sock:/var/run/docker.sock'
+        }
+    }
 
     environment {
         APP_NAME       = 'electronics-store'
@@ -8,8 +13,6 @@ pipeline {
         SONAR_HOST_URL = 'http://sonarqube:9000'
     }
 
-    // ← PAS de bloc tools ici
-
     options {
         buildDiscarder(logRotator(numToKeepStr: '10'))
         timeout(time: 30, unit: 'MINUTES')
@@ -17,6 +20,7 @@ pipeline {
     }
 
     stages {
+
         stage('Checkout') {
             steps {
                 echo '📥 Récupération du code source...'
@@ -24,11 +28,28 @@ pipeline {
             }
         }
 
+        stage('Verify Environment') {
+            steps {
+                echo '🔍 Vérification de l\'environnement...'
+                sh '''
+                    echo "Java version:"
+                    java -version
+                    echo ""
+                    echo "Maven version:"
+                    mvn -version
+                '''
+            }
+        }
+
         stage('Build') {
             steps {
                 echo '🔨 Build Maven...'
                 dir('project/backend') {
-                    sh '/usr/bin/mvn clean compile -B -q'
+                    sh '''
+                        echo "🔨 Compilation du projet..."
+                        mvn clean compile -B -DskipTests
+                        echo "✅ Compilation réussie"
+                    '''
                 }
             }
         }
@@ -37,7 +58,11 @@ pipeline {
             steps {
                 echo '🧪 Exécution des tests unitaires...'
                 dir('project/backend') {
-                    sh '/usr/bin/mvn test -B'
+                    sh '''
+                        echo "🧪 Exécution des tests..."
+                        mvn test -B
+                        echo "✅ Tests réussis"
+                    '''
                 }
             }
             post {
@@ -53,11 +78,15 @@ pipeline {
                 echo '🔍 Analyse SonarQube...'
                 withSonarQubeEnv('SonarQube') {
                     dir('project/backend') {
-                        sh """/usr/bin/mvn sonar:sonar \
-                          -Dsonar.projectKey=${APP_NAME} \
-                          -Dsonar.projectName='Electronics Store Backend' \
-                          -Dsonar.coverage.jacoco.xmlReportPaths=target/site/jacoco/jacoco.xml \
-                          -B -q"""
+                        sh """
+                            echo "📊 Envoi du rapport SonarQube..."
+                            mvn sonar:sonar \
+                              -Dsonar.projectKey=${APP_NAME} \
+                              -Dsonar.projectName='Electronics Store Backend' \
+                              -Dsonar.coverage.jacoco.xmlReportPaths=target/site/jacoco/jacoco.xml \
+                              -B
+                            echo "✅ Analyse SonarQube terminée"
+                        """
                     }
                 }
             }
@@ -67,8 +96,15 @@ pipeline {
             steps {
                 echo '📦 Packaging...'
                 dir('project/backend') {
-                    sh '/usr/bin/mvn package -DskipTests -B -q'
-                    archiveArtifacts artifacts: 'target/*.jar', fingerprint: true
+                    sh '''
+                        echo "📦 Création du JAR..."
+                        mvn package -DskipTests -B
+                        echo "✅ Packaging réussi"
+                        ls -lh target/*.jar || echo "⚠️ Aucun JAR trouvé"
+                    '''
+                    archiveArtifacts allowEmptyArchive: true,
+                                     artifacts: 'target/*.jar',
+                                     fingerprint: true
                 }
             }
         }
@@ -78,10 +114,13 @@ pipeline {
                 echo '🐳 Build Docker...'
                 dir('project/backend') {
                     sh """
+                        echo "🐳 Construction de l'image Docker..."
                         docker build \
                           -t ${DOCKER_IMAGE}:${DOCKER_TAG} \
                           -t ${DOCKER_IMAGE}:latest \
                           .
+                        echo "✅ Image Docker créée avec succès"
+                        docker images | grep ${DOCKER_IMAGE}
                     """
                 }
             }
@@ -92,9 +131,17 @@ pipeline {
             steps {
                 echo '📤 Push DockerHub...'
                 script {
-                    docker.withRegistry('', 'dockerhub-credentials') {
-                        docker.image("${DOCKER_IMAGE}:${DOCKER_TAG}").push()
-                        docker.image("${DOCKER_IMAGE}:latest").push()
+                    try {
+                        docker.withRegistry('https://index.docker.io/v1/', 'dockerhub-credentials') {
+                            echo "📤 Envoi de ${DOCKER_IMAGE}:${DOCKER_TAG}..."
+                            docker.image("${DOCKER_IMAGE}:${DOCKER_TAG}").push()
+                            echo "📤 Envoi de ${DOCKER_IMAGE}:latest..."
+                            docker.image("${DOCKER_IMAGE}:latest").push()
+                            echo "✅ Push vers DockerHub réussi"
+                        }
+                    } catch (Exception e) {
+                        echo "⚠️ Erreur lors du push: ${e.message}"
+                        throw e
                     }
                 }
             }
@@ -104,10 +151,24 @@ pipeline {
             when { branch 'main' }
             steps {
                 echo '🚀 Déploiement...'
-                sh """
-                    docker-compose -f project/docker-compose.yml down backend || true
-                    docker-compose -f project/docker-compose.yml up -d backend
-                """
+                script {
+                    try {
+                        sh """
+                            echo "🚀 Arrêt du service backend actuel..."
+                            docker compose -f project/docker-compose.yml down backend || true
+                            sleep 2
+                            echo "🟢 Démarrage du nouveau service backend..."
+                            docker compose -f project/docker-compose.yml up -d backend
+                            sleep 3
+                            echo "🔍 Vérification du statut..."
+                            docker compose -f project/docker-compose.yml ps backend
+                            echo "✅ Déploiement terminé"
+                        """
+                    } catch (Exception e) {
+                        echo "⚠️ Erreur lors du déploiement: ${e.message}"
+                        throw e
+                    }
+                }
             }
         }
     }
@@ -115,21 +176,31 @@ pipeline {
     post {
         success {
             echo """
-            ╔════════════════════════════════════╗
-            ║  ✅ Pipeline réussi!               ║
-            ║  Build #${BUILD_NUMBER}            ║
-            ╚════════════════════════════════════╝
+            
+                ╔════════════════════════════════════╗
+                ║  ✅ Pipeline réussi!               ║
+                ║  Build #${BUILD_NUMBER}                   ║
+                ║  Branch: ${GIT_BRANCH}             ║
+                ╚════════════════════════════════════╝
             """
         }
         failure {
             echo """
-            ╔════════════════════════════════════╗
-            ║  ❌ Pipeline échoué!               ║
-            ║  Build #${BUILD_NUMBER}            ║
-            ╚════════════════════════════════════╝
+            
+                ╔════════════════════════════════════╗
+                ║  ❌ Pipeline échoué!               ║
+                ║  Build #${BUILD_NUMBER}                   ║
+                ║  Vérifier les logs ci-dessus       ║
+                ╚════════════════════════════════════╝
             """
         }
         always {
+            script {
+                sh '''
+                    echo "🗐️ Nettoyage de l'espace de travail..."
+                    docker image prune -f --filter "dangling=true" || true
+                '''
+            }
             cleanWs()
         }
     }
