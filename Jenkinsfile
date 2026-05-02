@@ -27,7 +27,7 @@ pipeline {
         // ── 2. Build Maven ──────────────────────────────────────────────────
         stage('Build') {
             agent {
-                docker {
+                dockerContainer {
                     image 'maven:3.9.8-eclipse-temurin-17'
                     args '-v $HOME/.m2:/root/.m2'
                 }
@@ -43,7 +43,7 @@ pipeline {
         // ── 3. Tests unitaires ──────────────────────────────────────────────
         stage('Tests') {
             agent {
-                docker {
+                dockerContainer {
                     image 'maven:3.9.8-eclipse-temurin-17'
                     args '-v $HOME/.m2:/root/.m2'
                 }
@@ -68,7 +68,7 @@ pipeline {
         // ── 4. Analyse qualité SonarQube ────────────────────────────────────
         stage('SonarQube Analysis') {
             agent {
-                docker {
+                dockerContainer {
                     image 'maven:3.9.8-eclipse-temurin-17'
                     args '-v $HOME/.m2:/root/.m2'
                 }
@@ -92,7 +92,7 @@ pipeline {
         // ── 5. Packaging JAR ────────────────────────────────────────────────
         stage('Package') {
             agent {
-                docker {
+                dockerContainer {
                     image 'maven:3.9.8-eclipse-temurin-17'
                     args '-v $HOME/.m2:/root/.m2'
                 }
