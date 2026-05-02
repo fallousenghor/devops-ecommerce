@@ -8,6 +8,11 @@ pipeline {
         SONAR_HOST_URL = 'http://sonarqube:9000'
     }
 
+    tools {
+        maven 'Maven-3.9'
+        jdk   'JDK-17'
+    }
+
     options {
         buildDiscarder(logRotator(numToKeepStr: '10'))
         timeout(time: 30, unit: 'MINUTES')
