@@ -6,10 +6,9 @@ pipeline {
         DOCKER_IMAGE   = "fallousenghor/electronics-store"
         DOCKER_TAG     = "${BUILD_NUMBER}"
         SONAR_HOST_URL = 'http://sonarqube:9000'
-        MVN            = '/usr/bin/mvn'
     }
 
-    // ← PAS de bloc tools
+    // ← PAS de bloc tools ici
 
     options {
         buildDiscarder(logRotator(numToKeepStr: '10'))
@@ -18,7 +17,6 @@ pipeline {
     }
 
     stages {
-
         stage('Checkout') {
             steps {
                 echo '📥 Récupération du code source...'
@@ -30,7 +28,7 @@ pipeline {
             steps {
                 echo '🔨 Build Maven...'
                 dir('project/backend') {
-                    sh '${MVN} clean compile -B -q'
+                    sh '/usr/bin/mvn clean compile -B -q'
                 }
             }
         }
@@ -39,16 +37,13 @@ pipeline {
             steps {
                 echo '🧪 Exécution des tests unitaires...'
                 dir('project/backend') {
-                    sh '${MVN} test -B'
+                    sh '/usr/bin/mvn test -B'
                 }
             }
             post {
                 always {
                     junit allowEmptyResults: true,
                           testResults: 'project/backend/target/surefire-reports/**/*.xml'
-                }
-                failure {
-                    echo '❌ Tests échoués!'
                 }
             }
         }
@@ -58,13 +53,11 @@ pipeline {
                 echo '🔍 Analyse SonarQube...'
                 withSonarQubeEnv('SonarQube') {
                     dir('project/backend') {
-                        sh """
-                            ${MVN} sonar:sonar \
-                              -Dsonar.projectKey=${APP_NAME} \
-                              -Dsonar.projectName='Electronics Store Backend' \
-                              -Dsonar.coverage.jacoco.xmlReportPaths=target/site/jacoco/jacoco.xml \
-                              -B -q
-                        """
+                        sh """/usr/bin/mvn sonar:sonar \
+                          -Dsonar.projectKey=${APP_NAME} \
+                          -Dsonar.projectName='Electronics Store Backend' \
+                          -Dsonar.coverage.jacoco.xmlReportPaths=target/site/jacoco/jacoco.xml \
+                          -B -q"""
                     }
                 }
             }
@@ -74,7 +67,7 @@ pipeline {
             steps {
                 echo '📦 Packaging...'
                 dir('project/backend') {
-                    sh '${MVN} package -DskipTests -B -q'
+                    sh '/usr/bin/mvn package -DskipTests -B -q'
                     archiveArtifacts artifacts: 'target/*.jar', fingerprint: true
                 }
             }
@@ -115,7 +108,6 @@ pipeline {
                     docker-compose -f project/docker-compose.yml down backend || true
                     docker-compose -f project/docker-compose.yml up -d backend
                 """
-                echo '✅ Déploiement terminé!'
             }
         }
     }
