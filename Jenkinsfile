@@ -6,7 +6,10 @@ pipeline {
         DOCKER_IMAGE   = "fallousenghor/electronics-store"
         DOCKER_TAG     = "${BUILD_NUMBER}"
         SONAR_HOST_URL = 'http://sonarqube:9000'
+        MVN            = '/usr/bin/mvn'
     }
+
+    // ← PAS de bloc tools
 
     options {
         buildDiscarder(logRotator(numToKeepStr: '10'))
@@ -16,7 +19,6 @@ pipeline {
 
     stages {
 
-        // ── 1. Récupération du code ─────────────────────────────────────────
         stage('Checkout') {
             steps {
                 echo '📥 Récupération du code source...'
@@ -24,34 +26,20 @@ pipeline {
             }
         }
 
-        // ── 2. Build Maven ──────────────────────────────────────────────────
         stage('Build') {
-            agent {
-                dockerContainer {
-                    image 'maven:3.9.8-eclipse-temurin-17'
-                    args '-v $HOME/.m2:/root/.m2'
-                }
-            }
             steps {
                 echo '🔨 Build Maven...'
                 dir('project/backend') {
-                    sh 'mvn clean compile -B -q'
+                    sh '${MVN} clean compile -B -q'
                 }
             }
         }
 
-        // ── 3. Tests unitaires ──────────────────────────────────────────────
         stage('Tests') {
-            agent {
-                dockerContainer {
-                    image 'maven:3.9.8-eclipse-temurin-17'
-                    args '-v $HOME/.m2:/root/.m2'
-                }
-            }
             steps {
                 echo '🧪 Exécution des tests unitaires...'
                 dir('project/backend') {
-                    sh 'mvn test -B'
+                    sh '${MVN} test -B'
                 }
             }
             post {
@@ -65,20 +53,13 @@ pipeline {
             }
         }
 
-        // ── 4. Analyse qualité SonarQube ────────────────────────────────────
         stage('SonarQube Analysis') {
-            agent {
-                dockerContainer {
-                    image 'maven:3.9.8-eclipse-temurin-17'
-                    args '-v $HOME/.m2:/root/.m2'
-                }
-            }
             steps {
                 echo '🔍 Analyse SonarQube...'
                 withSonarQubeEnv('SonarQube') {
                     dir('project/backend') {
                         sh """
-                            mvn sonar:sonar \
+                            ${MVN} sonar:sonar \
                               -Dsonar.projectKey=${APP_NAME} \
                               -Dsonar.projectName='Electronics Store Backend' \
                               -Dsonar.coverage.jacoco.xmlReportPaths=target/site/jacoco/jacoco.xml \
@@ -89,32 +70,19 @@ pipeline {
             }
         }
 
-        // ── 5. Packaging JAR ────────────────────────────────────────────────
         stage('Package') {
-            agent {
-                dockerContainer {
-                    image 'maven:3.9.8-eclipse-temurin-17'
-                    args '-v $HOME/.m2:/root/.m2'
-                }
-            }
             steps {
-                echo '📦 Packaging de l\'application...'
+                echo '📦 Packaging...'
                 dir('project/backend') {
-                    sh 'mvn package -DskipTests -B -q'
+                    sh '${MVN} package -DskipTests -B -q'
                     archiveArtifacts artifacts: 'target/*.jar', fingerprint: true
                 }
             }
         }
 
-        // ── 6. Build image Docker ───────────────────────────────────────────
         stage('Docker Build') {
-            when {
-                allOf {
-                    expression { sh(script: 'command -v docker >/dev/null 2>&1', returnStatus: true) == 0 }
-                }
-            }
             steps {
-                echo '🐳 Construction de l\'image Docker...'
+                echo '🐳 Build Docker...'
                 dir('project/backend') {
                     sh """
                         docker build \
@@ -126,39 +94,23 @@ pipeline {
             }
         }
 
-        // ── 7. Push DockerHub ───────────────────────────────────────────────
         stage('Push DockerHub') {
-            when {
-                allOf {
-                    branch 'main'
-                    expression { sh(script: 'command -v docker >/dev/null 2>&1', returnStatus: true) == 0 }
-                }
-            }
+            when { branch 'main' }
             steps {
-                echo '📤 Push vers DockerHub...'
+                echo '📤 Push DockerHub...'
                 script {
-                    withCredentials([usernamePassword(credentialsId: 'dockerhub-credentials', passwordVariable: 'DOCKER_PASSWORD', usernameVariable: 'DOCKER_USER')]) {
-                        sh """
-                            echo \$DOCKER_PASSWORD | docker login -u \$DOCKER_USER --password-stdin
-                            docker push ${DOCKER_IMAGE}:${DOCKER_TAG}
-                            docker push ${DOCKER_IMAGE}:latest
-                            docker logout
-                        """
+                    docker.withRegistry('', 'dockerhub-credentials') {
+                        docker.image("${DOCKER_IMAGE}:${DOCKER_TAG}").push()
+                        docker.image("${DOCKER_IMAGE}:latest").push()
                     }
                 }
             }
         }
 
-        // ── 8. Déploiement local ────────────────────────────────────────────
         stage('Deploy') {
-            when {
-                allOf {
-                    branch 'main'
-                    expression { sh(script: 'command -v docker >/dev/null 2>&1 && command -v docker-compose >/dev/null 2>&1', returnStatus: true) == 0 }
-                }
-            }
+            when { branch 'main' }
             steps {
-                echo '🚀 Déploiement local via docker-compose...'
+                echo '🚀 Déploiement...'
                 sh """
                     docker-compose -f project/docker-compose.yml down backend || true
                     docker-compose -f project/docker-compose.yml up -d backend
