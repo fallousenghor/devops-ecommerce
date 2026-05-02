@@ -8,11 +8,6 @@ pipeline {
         SONAR_HOST_URL = 'http://sonarqube:9000'
     }
 
-    tools {
-        maven 'Maven-3.9'
-        jdk   'JDK-17'
-    }
-
     options {
         buildDiscarder(logRotator(numToKeepStr: '10'))
         timeout(time: 30, unit: 'MINUTES')
@@ -21,7 +16,6 @@ pipeline {
 
     stages {
 
-        // ── 1. Récupération du code ─────────────────────────────────────────
         stage('Checkout') {
             steps {
                 echo '📥 Récupération du code source...'
@@ -29,8 +23,13 @@ pipeline {
             }
         }
 
-        // ── 2. Build Maven ──────────────────────────────────────────────────
         stage('Build') {
+            agent {
+                docker {
+                    image 'maven:3.9.8-eclipse-temurin-17'
+                    args '-v $HOME/.m2:/root/.m2'
+                }
+            }
             steps {
                 echo '🔨 Build Maven...'
                 dir('project/backend') {
@@ -39,8 +38,13 @@ pipeline {
             }
         }
 
-        // ── 3. Tests unitaires ──────────────────────────────────────────────
         stage('Tests') {
+            agent {
+                docker {
+                    image 'maven:3.9.8-eclipse-temurin-17'
+                    args '-v $HOME/.m2:/root/.m2'
+                }
+            }
             steps {
                 echo '🧪 Exécution des tests unitaires...'
                 dir('project/backend') {
@@ -58,26 +62,36 @@ pipeline {
             }
         }
 
-        // ── 4. Analyse qualité SonarQube ────────────────────────────────────
         stage('SonarQube Analysis') {
+            agent {
+                docker {
+                    image 'maven:3.9.8-eclipse-temurin-17'
+                    args '-v $HOME/.m2:/root/.m2'
+                }
+            }
             steps {
                 echo '🔍 Analyse SonarQube...'
                 withSonarQubeEnv('SonarQube') {
                     dir('project/backend') {
-                        sh """
+                        sh '''
                             mvn sonar:sonar \
                               -Dsonar.projectKey=${APP_NAME} \
                               -Dsonar.projectName='Electronics Store Backend' \
                               -Dsonar.coverage.jacoco.xmlReportPaths=target/site/jacoco/jacoco.xml \
                               -B -q
-                        """
+                        '''
                     }
                 }
             }
         }
 
-        // ── 5. Packaging JAR ────────────────────────────────────────────────
         stage('Package') {
+            agent {
+                docker {
+                    image 'maven:3.9.8-eclipse-temurin-17'
+                    args '-v $HOME/.m2:/root/.m2'
+                }
+            }
             steps {
                 echo '📦 Packaging de l\'application...'
                 dir('project/backend') {
@@ -87,69 +101,58 @@ pipeline {
             }
         }
 
-        // ── 6. Build image Docker ───────────────────────────────────────────
         stage('Docker Build') {
+            when {
+                expression { sh(script: 'command -v docker >/dev/null 2>&1', returnStatus: true) == 0 }
+            }
             steps {
                 echo '🐳 Construction de l\'image Docker...'
-                script {
-                    try {
-                        dir('project/backend') {
-                            sh """
-                                # Check if Docker is available
-                                if ! command -v docker &> /dev/null; then
-                                    echo '⚠️  Docker not found, skipping Docker build'
-                                    exit 0
-                                fi
-                                
-                                docker build \
-                                  -t ${DOCKER_IMAGE}:${DOCKER_TAG} \
-                                  -t ${DOCKER_IMAGE}:latest \
-                                  .
-                            """
-                        }
-                    } catch (Exception e) {
-                        echo '⚠️  Docker build failed. Ensure Docker is installed and running.'
-                        if (env.BRANCH_NAME == 'main') {
-                            error('Docker build required for main branch')
-                        }
-                    }
+                dir('project/backend') {
+                    sh '''
+                        docker build \
+                          -t ${DOCKER_IMAGE}:${DOCKER_TAG} \
+                          -t ${DOCKER_IMAGE}:latest \
+                          .
+                    '''
                 }
             }
         }
 
-        // ── 7. Push DockerHub ───────────────────────────────────────────────
         stage('Push DockerHub') {
-            when { 
-                branch 'main'
-                expression { sh(script: 'command -v docker &> /dev/null', returnStatus: true) == 0 }
+            when {
+                allOf {
+                    branch 'main'
+                    expression { sh(script: 'command -v docker >/dev/null 2>&1', returnStatus: true) == 0 }
+                }
             }
             steps {
                 echo '📤 Push vers DockerHub...'
                 script {
                     withCredentials([usernamePassword(credentialsId: 'dockerhub-credentials', passwordVariable: 'DOCKER_PASSWORD', usernameVariable: 'DOCKER_USER')]) {
-                        sh """
-                            echo \$DOCKER_PASSWORD | docker login -u \$DOCKER_USER --password-stdin
+                        sh '''
+                            echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USER" --password-stdin
                             docker push ${DOCKER_IMAGE}:${DOCKER_TAG}
                             docker push ${DOCKER_IMAGE}:latest
                             docker logout
-                        """
+                        '''
                     }
                 }
             }
         }
 
-        // ── 8. Déploiement local ────────────────────────────────────────────
         stage('Deploy') {
-            when { 
-                branch 'main'
-                expression { sh(script: 'command -v docker &> /dev/null && command -v docker-compose &> /dev/null', returnStatus: true) == 0 }
+            when {
+                allOf {
+                    branch 'main'
+                    expression { sh(script: 'command -v docker >/dev/null 2>&1 && command -v docker-compose >/dev/null 2>&1', returnStatus: true) == 0 }
+                }
             }
             steps {
                 echo '🚀 Déploiement local via docker-compose...'
-                sh """
+                sh '''
                     docker-compose -f project/docker-compose.yml down backend || true
                     docker-compose -f project/docker-compose.yml up -d backend
-                """
+                '''
                 echo '✅ Déploiement terminé!'
             }
         }
@@ -157,20 +160,20 @@ pipeline {
 
     post {
         success {
-            echo """
+            echo '''
             ╔════════════════════════════════════╗
             ║  ✅ Pipeline réussi!               ║
             ║  Build #${BUILD_NUMBER}            ║
             ╚════════════════════════════════════╝
-            """
+            '''
         }
         failure {
-            echo """
+            echo '''
             ╔════════════════════════════════════╗
             ║  ❌ Pipeline échoué!               ║
             ║  Build #${BUILD_NUMBER}            ║
             ╚════════════════════════════════════╝
-            """
+            '''
         }
         always {
             cleanWs()
