@@ -8,11 +8,6 @@ pipeline {
         SONAR_HOST_URL = 'http://sonarqube:9000'
     }
 
-    tools {
-        maven 'Maven-3.9'
-        jdk   'JDK-17'
-    }
-
     options {
         buildDiscarder(logRotator(numToKeepStr: '10'))
         timeout(time: 30, unit: 'MINUTES')
@@ -31,6 +26,12 @@ pipeline {
 
         // ── 2. Build Maven ──────────────────────────────────────────────────
         stage('Build') {
+            agent {
+                docker {
+                    image 'maven:3.9.8-eclipse-temurin-17'
+                    args '-v $HOME/.m2:/root/.m2'
+                }
+            }
             steps {
                 echo '🔨 Build Maven...'
                 dir('project/backend') {
@@ -41,6 +42,12 @@ pipeline {
 
         // ── 3. Tests unitaires ──────────────────────────────────────────────
         stage('Tests') {
+            agent {
+                docker {
+                    image 'maven:3.9.8-eclipse-temurin-17'
+                    args '-v $HOME/.m2:/root/.m2'
+                }
+            }
             steps {
                 echo '🧪 Exécution des tests unitaires...'
                 dir('project/backend') {
@@ -60,6 +67,12 @@ pipeline {
 
         // ── 4. Analyse qualité SonarQube ────────────────────────────────────
         stage('SonarQube Analysis') {
+            agent {
+                docker {
+                    image 'maven:3.9.8-eclipse-temurin-17'
+                    args '-v $HOME/.m2:/root/.m2'
+                }
+            }
             steps {
                 echo '🔍 Analyse SonarQube...'
                 withSonarQubeEnv('SonarQube') {
@@ -78,6 +91,12 @@ pipeline {
 
         // ── 5. Packaging JAR ────────────────────────────────────────────────
         stage('Package') {
+            agent {
+                docker {
+                    image 'maven:3.9.8-eclipse-temurin-17'
+                    args '-v $HOME/.m2:/root/.m2'
+                }
+            }
             steps {
                 echo '📦 Packaging de l\'application...'
                 dir('project/backend') {
@@ -89,6 +108,11 @@ pipeline {
 
         // ── 6. Build image Docker ───────────────────────────────────────────
         stage('Docker Build') {
+            when {
+                allOf {
+                    expression { sh(script: 'command -v docker >/dev/null 2>&1', returnStatus: true) == 0 }
+                }
+            }
             steps {
                 echo '🐳 Construction de l\'image Docker...'
                 dir('project/backend') {
@@ -104,13 +128,22 @@ pipeline {
 
         // ── 7. Push DockerHub ───────────────────────────────────────────────
         stage('Push DockerHub') {
-            when { branch 'main' }
+            when {
+                allOf {
+                    branch 'main'
+                    expression { sh(script: 'command -v docker >/dev/null 2>&1', returnStatus: true) == 0 }
+                }
+            }
             steps {
                 echo '📤 Push vers DockerHub...'
                 script {
-                    docker.withRegistry('', 'dockerhub-credentials') {
-                        docker.image("${DOCKER_IMAGE}:${DOCKER_TAG}").push()
-                        docker.image("${DOCKER_IMAGE}:latest").push()
+                    withCredentials([usernamePassword(credentialsId: 'dockerhub-credentials', passwordVariable: 'DOCKER_PASSWORD', usernameVariable: 'DOCKER_USER')]) {
+                        sh """
+                            echo \$DOCKER_PASSWORD | docker login -u \$DOCKER_USER --password-stdin
+                            docker push ${DOCKER_IMAGE}:${DOCKER_TAG}
+                            docker push ${DOCKER_IMAGE}:latest
+                            docker logout
+                        """
                     }
                 }
             }
@@ -118,7 +151,12 @@ pipeline {
 
         // ── 8. Déploiement local ────────────────────────────────────────────
         stage('Deploy') {
-            when { branch 'main' }
+            when {
+                allOf {
+                    branch 'main'
+                    expression { sh(script: 'command -v docker >/dev/null 2>&1 && command -v docker-compose >/dev/null 2>&1', returnStatus: true) == 0 }
+                }
+            }
             steps {
                 echo '🚀 Déploiement local via docker-compose...'
                 sh """
